@@ -2,27 +2,44 @@
 // Once loading is complete, your application starts seamlessly.
 import Avvio from "avvio";
 
-// A set of unique constants enforced by Symbol (add explainations abotu what Symbol does).
 import { kAvvioBoot, kState } from "./lib/symbols.js";
+
+// pluginOverride *tells* Avvio how to deal with plugin encapsulation
 import { pluginOverride } from "./lib/pluginOverride.js";
 
 export default function miniFastify() {
-  // Public API
+  /**
+   * The object returned to the user.
+   * We deliberately keep it tiny; Avvio will “decorate” it in‑place with
+   * `.register`, `.ready`, `.close`, etc.
+   */
   const instance = {
-    // instance internals
+    /**
+     * Internal lifecycle flags.
+     *   started      – set when Avvio emits `"start"`.
+     *   ready        – set *after* our own wrapper resolves.
+     *   closing      – set in a pre‑registered `onClose` hook.
+     *   readyPromise – memoises the Promise returned by `instance.ready()`
+     *                  so repeated calls are idempotent.
+     */
     [kState]: {
       started: false,
       ready: false,
       closing: false,
       readyPromise: null,
     },
-    register: null, // Placeholder for a plugin registration function (to be overridden by Avvio).
+
+    // Place‑holders (to be replaced by Avvio)
+    register: null,
     ready: null,
     onClose: null,
     close: null,
+
+    // Will hold Avvio’s *real* `.ready()` so we can call it internally
     [kAvvioBoot]: null,
   };
 
+  // Promise‑based wrapper around Avvio’s callback‑style `.ready()`.
   async function ready() {
     if (this[kState].readyPromise !== null) return this[kState].readyPromise;
 
@@ -42,31 +59,39 @@ export default function miniFastify() {
     return this[kState].readyPromise;
   }
 
-  // Initialize Avvio with the instance and configuration options.
-  // Avvio will update the following instance methods:
-  // - register
-  // - ready
-  // - onClose
-  // - close
+  /**
+   * Initialise Avvio **after** defining `instance` so Avvio can mutate it
+   * (adding `.register`, `.ready`, etc.).  We disable `autostart` so boot
+   * happens *only* when the user calls `instance.ready()`.
+   */
   const avvio = Avvio(instance, {
     autostart: false, // Do not start loading plugins automatically, but wait for a call to .start()  or .ready().
     timeout: 10_000, // Set timeout for plugin execution.
     expose: {
-      use: "register", // Expose the Avvio native `use` method as `register` for plugin registration.
+      use: "register", // make Avvio’s .use() available as .register()
     },
   });
 
-  // Override the Avvio's default override mechanism to handle plugin overrides.
+  // Tell Avvio to use our custom encapsulation rules.
   avvio.override = pluginOverride;
   avvio.on("start", () => {
     instance[kState].started = true;
   });
 
-  // Here we differentiate boot by avvio vs miniFastify boot
+  /**
+   * Swap the boot functions:
+   *   • Save Avvio’s original ready in kAvvioBoot for internal use
+   *   • Replace instance.ready with our Promise wrapper (public api)
+   */
   instance[kAvvioBoot] = instance.ready;
   instance.ready = ready;
 
-  // cache the closing value, since we are checking it in an hot path
+
+  /**
+   * Mark `closing = true` in the *very first* onClose hook we add.
+   * preReady guarantees the hook is registered long before
+   * users can call `instance.close()`.
+   */
   avvio.once("preReady", () => {
     instance.onClose((instance, done) => {
       instance[kState].closing = true;
@@ -74,6 +99,5 @@ export default function miniFastify() {
     });
   });
 
-  // Return the instance, allowing users to register plugins and start the application.
   return instance;
 }
