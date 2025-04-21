@@ -1,0 +1,27 @@
+{
+  "name": "fastify-mini",
+  "version": "1.0.0",
+  "description": "A minimalistic version of the Fastify framework.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "borp --reporter=@jsumners/line-reporter --coverage --check-coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepare": "husky"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "avvio": "^9.1.0",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@jsumners/line-reporter": "^1.0.1",
+    "borp": "^0.19.0",
+    "eslint": "^9.25.0",
+    "globals": "^16.0.0",
+    "husky": "^9.1.7"
+  }
+}
