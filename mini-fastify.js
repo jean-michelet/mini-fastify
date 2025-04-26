@@ -10,11 +10,6 @@ import { buildRouter } from "./lib/routing.js";
 
 export default function miniFastify() {
   const router = buildRouter();
-  /**
-   * The object returned to the user.
-   * We deliberately keep it tiny; Avvio will “decorate” it in‑place with
-   * `.register`, `.ready`, `.close`, etc.
-   */
   const instance = {
     /**
      * Internal lifecycle flags.
@@ -50,6 +45,8 @@ export default function miniFastify() {
 
   let lightMyRequest;
   async function inject(opts) {
+    // lightMyRequest is dynamically loaded as it seems 
+    // very expensive because of Ajv
     if (lightMyRequest === undefined) {
       lightMyRequest = (await import("light-my-request")).default;
     }
@@ -66,6 +63,7 @@ export default function miniFastify() {
     if (this[kState].readyPromise !== null) return this[kState].readyPromise;
 
     this[kState].readyPromise = new Promise((resolve, reject) => {
+      // Internal avvio `ready` function
       instance[kAvvioBoot]((err, done) => {
         if (err) {
           reject(err);
