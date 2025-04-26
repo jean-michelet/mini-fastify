@@ -57,4 +57,37 @@ describe("miniFastify routing", () => {
     const nope = await app.inject({ ...config, method: "GET" });
     assert.equal(nope.statusCode, 404);
   });
+
+  it("should choose the correct handler based on constraints", async () => {
+    app.route({
+      method: "GET",
+      url: "/zone",
+      handler: (_req, reply) => reply.end("public"),
+    });
+
+    app.route({
+      method: "GET",
+      url: "/zone",
+      constraints: { host: "admin.example.com" },
+      handler: (_req, reply) => reply.end("admin"),
+    });
+
+    const adminRes = await app.inject({
+      method: "GET",
+      url: "/zone",
+      headers: { host: "admin.example.com" },
+    });
+
+    assert.equal(adminRes.statusCode, 200);
+    assert.equal(adminRes.payload, "admin");
+
+    const publicRes = await app.inject({
+      method: "GET",
+      url: "/zone",
+      headers: { host: "foo.example.com" },
+    });
+
+    assert.equal(publicRes.statusCode, 200);
+    assert.equal(publicRes.payload, "public");
+  });
 });
