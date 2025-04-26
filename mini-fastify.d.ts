@@ -1,3 +1,5 @@
+import { InjectOptions, Response as LightMyRequestResponse } from 'light-my-request'
+import { RouteOptions } from './types/routing';
 
 export type MiniFastifyPluginOptions = Record<string, any>
 export type MiniFastifyPlugin<T = MiniFastifyPluginOptions | undefined> = (
@@ -14,6 +16,10 @@ export interface MiniFastifyInstance {
     plugin: MiniFastifyPlugin<T>,
     options?: T
   ): void;
+
+  route(opts: RouteOptions): this;
+
+  inject(opts: InjectOptions): Promise<LightMyRequestResponse>;
 }
 
 declare function miniFastify(): MiniFastifyInstance;

@@ -1,8 +1,13 @@
 import { expectType, expectError } from "tsd";
+import {
+  InjectOptions,
+  Response as LightMyRequestResponse,
+} from "light-my-request";
 import miniFastify, {
   MiniFastifyInstance,
   MiniFastifyPluginOptions,
 } from "../../mini-fastify.js";
+import { IncomingMessage, ServerResponse } from "node:http";
 
 // basic instance
 const app = miniFastify();
@@ -31,8 +36,33 @@ app.register(
   { hello: "world" }
 );
 
-app.register(async (instance: MiniFastifyInstance, opts) => {});
+expectType<MiniFastifyInstance>(
+  app.route({
+    method: "GET",
+    url: "/",
+    handler: (req, res) => {
+      expectType<IncomingMessage>(req)
+      expectType<ServerResponse>(res)
+      res.end("ok");
+    },
+    constraints: { host: "hello" },
+  })
+);
 
-expectError(app.register((instance, opts) => {
-    opts.x = true
-}, { x: 1 }));
+// Missing handler
+expectError(app.route({ method: "GET", url: "/" }));
+
+// Invalid constraints
+expectError(app.route({ method: "GET", url: "/", handler: () => {}, constraints: true }));
+
+const opts: InjectOptions = {};
+expectType<Promise<LightMyRequestResponse>>(app.inject(opts));
+
+expectError(
+  app.register(
+    (instance, opts) => {
+      opts.x = true;
+    },
+    { x: 1 }
+  )
+);
