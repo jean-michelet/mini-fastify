@@ -6,8 +6,10 @@ import { kAvvioBoot, kState } from "./lib/symbols.js";
 
 // pluginOverride *tells* Avvio how to deal with plugin encapsulation
 import { pluginOverride } from "./lib/pluginOverride.js";
+import { buildRouter } from "./lib/routing.js";
 
 export default function miniFastify() {
+  const router = buildRouter();
   /**
    * The object returned to the user.
    * We deliberately keep it tiny; Avvio will “decorate” it in‑place with
@@ -37,7 +39,27 @@ export default function miniFastify() {
 
     // Will hold Avvio’s *real* `.ready()` so we can call it internally
     [kAvvioBoot]: null,
+    route: function _route(options) {
+      // we need the fastify object that we are producing so we apply a lazy loading of the function,
+      // otherwise we should bind it after the declaration
+      return router.route.call(this, options);
+    },
+
+    inject,
   };
+
+  let lightMyRequest;
+  async function inject(opts) {
+    if (lightMyRequest === undefined) {
+      lightMyRequest = (await import("light-my-request")).default;
+    }
+
+    return lightMyRequest(async (req, res) => {
+      await instance.ready();
+
+      await router.routing(req, res);
+    }, opts);
+  }
 
   // Promise‑based wrapper around Avvio’s callback‑style `.ready()`.
   async function ready() {
@@ -85,7 +107,6 @@ export default function miniFastify() {
    */
   instance[kAvvioBoot] = instance.ready;
   instance.ready = ready;
-
 
   /**
    * Mark `closing = true` in the *very first* onClose hook we add.
