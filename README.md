@@ -9,3 +9,21 @@ The goal is to:
 - Explore computer science and Node.js/JavaScript advanced concepts.
 
 This is not a production-ready web framework, but a learning tool designed for experienced developers and potential contributors who want to understand how things really work under the hood.
+
+Done:
+- App life cycle (no-hooks) and plugin system with avvio (register, encapsulation)
+- Routing with find-my-way
+- Inject with light-my-request
+
+Next steps are:
+- Errors
+- Request
+- Reply
+- Decorators
+- Hooks
+- Validation and Serialization
+- Server
+
+Exercices:
+- Allow to configure mini-fastify: `miniFastify(serverOptions)`
+- Add error and notFound handlers
