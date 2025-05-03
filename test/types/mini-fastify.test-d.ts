@@ -66,3 +66,14 @@ expectError(
     { x: 1 }
   )
 );
+
+expectError<MiniFastifyInstance>(
+  app.addHook("invalidHook", () => {})
+);
+
+expectType<MiniFastifyInstance>(
+  app.addHook("onRequest", (req, rep) => {
+    expectType<IncomingMessage>(req)
+    expectType<ServerResponse>(rep)
+  })
+);
