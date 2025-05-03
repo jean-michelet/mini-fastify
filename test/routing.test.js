@@ -10,6 +10,23 @@ describe("miniFastify routing", () => {
     app = miniFastify();
   });
 
+  it("should fail adding hook if app is started", async (t) => {
+    await app.ready();
+    try {
+      app.route({
+        method: "GET",
+        url: "/ping",
+        handler: (_req, res) => {
+          res.end("pong");
+        },
+      });
+      t.assert.fail();
+    } catch (err) {
+      t.assert.strictEqual(err.code, "FST_ERR_INSTANCE_ALREADY_STARTED");
+      
+    }
+  });
+
   it("should reply with the payload of a registered route", async () => {
     app.route({
       method: "GET",
@@ -33,8 +50,8 @@ describe("miniFastify routing", () => {
     app.route({
       method: "GET",
       url: "/user/:id",
-      handler: (_req, res, params) => {
-        res.end(params.id);
+      handler: (req, res) => {
+        res.end(req.params.id);
       },
     });
 

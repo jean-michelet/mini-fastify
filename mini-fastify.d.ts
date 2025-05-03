@@ -15,7 +15,7 @@ export interface MiniFastifyInstance {
   register<T = MiniFastifyPluginOptions>(
     plugin: MiniFastifyPlugin<T>,
     options?: T
-  ): void;
+  ): void | Promise<void>;
 
   route(opts: RouteOptions): this;
 

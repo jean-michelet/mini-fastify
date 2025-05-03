@@ -2,11 +2,13 @@
 // Once loading is complete, your application starts seamlessly.
 import Avvio from "avvio";
 
-import { kAvvioBoot, kState } from "./lib/symbols.js";
+import { kAvvioBoot, kHooks, kState } from "./lib/symbols.js";
 
 // pluginOverride *tells* Avvio how to deal with plugin encapsulation
 import { pluginOverride } from "./lib/pluginOverride.js";
 import { buildRouter } from "./lib/routing.js";
+import { Hooks } from "./lib/hooks.js";
+import { FST_ERR_INSTANCE_ALREADY_STARTED } from "./lib/errors.js";
 
 export default function miniFastify() {
   const router = buildRouter();
@@ -29,18 +31,23 @@ export default function miniFastify() {
     // Place‑holders (to be replaced by Avvio)
     register: null,
     ready: null,
+    after: null,
     onClose: null,
     close: null,
 
     // Will hold Avvio’s *real* `.ready()` so we can call it internally
     [kAvvioBoot]: null,
     route: function _route(options) {
+      throwIfAlreadyStarted('Cannot call "route"!')
       // we need the fastify object that we are producing so we apply a lazy loading of the function,
       // otherwise we should bind it after the declaration
       return router.route.call(this, options);
     },
 
     inject,
+
+    [kHooks]: new Hooks(),
+    addHook
   };
 
   let lightMyRequest;
@@ -66,6 +73,7 @@ export default function miniFastify() {
       // Internal avvio `ready` function
       instance[kAvvioBoot]((err, done) => {
         if (err) {
+          console.log("hi")
           reject(err);
         } else {
           instance[kState].ready = true;
@@ -117,6 +125,35 @@ export default function miniFastify() {
       done();
     });
   });
+
+  function addHook (name, fn) {
+    throwIfAlreadyStarted('Cannot call "addHook"!')
+
+    this.after((err, done) => {
+      try {
+        _addHook.call(this, name, fn)
+        done(err)
+      } catch (err) {
+        done(err)
+      }
+    })
+
+    function _addHook (name, fn) {
+      this[kHooks].add(name, fn)
+      // Todo:
+      // this[kChildren].forEach(child => _addHook.call(child, name, fn))
+    }
+
+    return this;
+  };
+
+  function throwIfAlreadyStarted (msg) {
+    if (instance[kState].started) throw new FST_ERR_INSTANCE_ALREADY_STARTED(msg)
+  }
+
+  router.setup({
+    avvio 
+  })
 
   return instance;
 }
