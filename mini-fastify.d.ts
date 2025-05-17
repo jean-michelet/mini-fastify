@@ -28,6 +28,10 @@ export interface MiniFastifyInstance {
   addHook<K extends HookName>(name: K, fn: HookHandlerMap[K]): MiniFastifyInstance;
 }
 
-declare function miniFastify(): MiniFastifyInstance;
+export interface FastifyServerOptions {
+  pluginTimeout?: number
+}
+
+declare function miniFastify(opts?: FastifyServerOptions): MiniFastifyInstance;
 
 export default miniFastify;

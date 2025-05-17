@@ -1,10 +1,11 @@
 import { describe, it, beforeEach } from "node:test";
 
 import miniFastify from "../mini-fastify.js";
+import assert from "assert";
 
 describe("miniFastify hooks", () => {
+  /** @type {import('../mini-fastify.js').MiniFastifyInstance} */
   let app;
-
   beforeEach(() => {
     app = miniFastify();
   });
@@ -27,32 +28,79 @@ describe("miniFastify hooks", () => {
       t.assert.fail();
     } catch (err) {
       t.assert.strictEqual(err.code, "FST_ERR_INSTANCE_ALREADY_STARTED");
-      t.assert.match(err.message, /Fastify instance is already started. Cannot call "addHook"!/i);
+      t.assert.match(
+        err.message,
+        /Fastify instance is already started. Cannot call "addHook"!/i
+      );
     }
   });
 
-  it("should execute hooks sequentially", async (t) => {
-    t.plan(2);
+  async function assertRunSequentially({ name, onAdded, reverse = false }) {
     const given = [];
-    app.addHook("onRequest", () => {
+    app.addHook(name, async () => {
       given.push(1);
     });
-    app.addHook("onRequest", async () => {
+
+    app.addHook(name, async () => {
       given.push(2);
     });
-    app.addHook("onRequest", () => {
+
+    app.addHook(name, async () => {
       given.push(3);
     });
-    app.route({
-      method: "GET",
-      url: "/ping",
-      handler: (_, res) => {
-        res.end("he");
+
+    await onAdded();
+    assert.deepStrictEqual(given, reverse ? [3, 2, 1] : [1, 2, 3]);
+  }
+
+  it("should execute onClose hooks sequentially", async () => {
+    await assertRunSequentially({
+      name: "onClose",
+      onAdded: async () => {
+        await app.ready();
+        await app.close();
+      },
+      reverse: true,
+    });
+  });
+
+  it("should execute application onReady hooks sequentially", async () => {
+    await assertRunSequentially({
+      name: "onReady",
+      onAdded: async () => {
+        await app.ready();
       },
     });
+  });
 
-    const res = await app.inject({ method: "GET", url: "/ping" });
-    t.assert.equal(res.statusCode, 200);
-    t.assert.deepStrictEqual(given, [1, 2, 3]);
+  it("should execute application onRoute hooks sequentially", async () => {
+    await assertRunSequentially({
+      name: "onRoute",
+      onAdded: async () => {
+        app.route({
+          method: "GET",
+          url: "/",
+          handler: () => {}
+        })
+        await app.ready();
+      },
+    });
+  });
+
+  it("should execute life cycle hooks sequentially", async () => {
+    await assertRunSequentially({
+      name: "onRequest",
+      onAdded: async () => {
+        app.route({
+          method: "GET",
+          url: "/ping",
+          handler: (_, res) => {
+            res.end();
+          },
+        });
+        await app.ready();
+        await app.inject({ method: "GET", url: "/ping" });
+      },
+    });
   });
 });

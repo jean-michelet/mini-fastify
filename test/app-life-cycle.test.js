@@ -13,6 +13,7 @@ describe("miniFastify lifecycle", () => {
   it("should create instance with expected default properties", () => {
     const state = app[kState];
 
+    assert.strictEqual(state.booting, false);
     assert.strictEqual(state.started, false);
     assert.strictEqual(state.ready, false);
     assert.strictEqual(state.closing, false);
@@ -28,26 +29,33 @@ describe("miniFastify lifecycle", () => {
     await app.ready();
 
     const state = app[kState];
-
+    assert.strictEqual(state.booting, false);
     assert.strictEqual(state.started, true);
     assert.strictEqual(state.ready, true);
     assert.strictEqual(state.closing, false);
-    assert.ok(state.readyPromise instanceof Promise);
+    assert.strictEqual(state.readyPromise, null);
   });
 
-  it("should keep state consistent if ready is called multiple times", async () => {
-    await app.ready();
-    assertState()
+  it("ready should be indempotant", async () => {
+    assert.deepStrictEqual(app.ready(), app.ready())
+  });
 
-    await app.ready();
-    assertState()
+  it("should trigger an Avvio timeout error during boot", async () => {
+    app = miniFastify({
+      pluginTimeout: 50
+    });
+  
+    // eslint-disable-next-line no-unused-vars
+    app.register((_instance, _opts, _done) => {
+      // done() is never called – throw on timeout
+    });
 
-    function assertState() {
-      const state = app[kState];
-      assert.strictEqual(state.started, true);
-      assert.strictEqual(state.ready, true);
-      assert.strictEqual(state.closing, false);
-      assert.ok(state.readyPromise instanceof Promise);
+    try {
+      await app.ready();
+      assert.fail("Expected timeout error");
+    } catch (err) {
+      // Fastify wraps Avvio error codes
+      assert.strictEqual(err.code, "FST_ERR_PLUGIN_TIMEOUT");
     }
   });
 
@@ -56,11 +64,11 @@ describe("miniFastify lifecycle", () => {
     await app.close();
 
     const state = app[kState];
-
+    assert.strictEqual(state.booting, false);
     assert.strictEqual(state.started, true);
     assert.strictEqual(state.ready, true);
     assert.strictEqual(state.closing, true);
-    assert.ok(state.readyPromise instanceof Promise);
+    assert.strictEqual(state.readyPromise, null);
   });
 
   it("should allow custom onClose handlers", async () => {

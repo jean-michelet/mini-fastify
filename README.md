@@ -14,13 +14,13 @@ Done:
 - App life cycle (no-hooks) and plugin system with avvio (register, encapsulation)
 - Routing with find-my-way
 - Inject with light-my-request
+- Internal Errors
+- Hooks basis
 
 Next steps are:
-- Errors
 - Request
 - Reply
 - Decorators
-- Hooks
 - Validation and Serialization
 - Server
 

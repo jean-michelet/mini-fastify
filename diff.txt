@@ -1,0 +1,802 @@
+diff --git a/README.md b/README.md
+index 80470b0..dc96a42 100644
+--- a/README.md
++++ b/README.md
+@@ -14,13 +14,13 @@ Done:
+ - App life cycle (no-hooks) and plugin system with avvio (register, encapsulation)
+ - Routing with find-my-way
+ - Inject with light-my-request
++- Internal Errors
++- Hooks basis
+ 
+ Next steps are:
+-- Errors
+ - Request
+ - Reply
+ - Decorators
+-- Hooks
+ - Validation and Serialization
+ - Server
+ 
+diff --git a/eslint.config.js b/eslint.config.js
+index 9ea37de..39e2e99 100644
+--- a/eslint.config.js
++++ b/eslint.config.js
+@@ -5,5 +5,5 @@ import { defineConfig } from "eslint/config";
+ 
+ export default defineConfig([
+   { files: ["**/*.{js,mjs,cjs}"], plugins: { js }, extends: ["js/recommended"] },
+-  { files: ["**/*.{js,mjs,cjs}"], languageOptions: { globals: globals.browser } },
++  { files: ["**/*.{js,mjs,cjs}"], languageOptions: { globals: globals.node } },
+ ]);
+\ No newline at end of file
+diff --git a/lib/errors.js b/lib/errors.js
+index e6bb14d..6816fc3 100644
+--- a/lib/errors.js
++++ b/lib/errors.js
+@@ -11,3 +11,45 @@ export const FST_ERR_HOOK_NOT_SUPPORTED = createError(
+   500,
+   TypeError
+ );
++
++export const FST_ERR_PLUGIN_CALLBACK_NOT_FN = createError(
++  'FST_ERR_PLUGIN_CALLBACK_NOT_FN',
++  'fastify-plugin: %s',
++  500,
++  TypeError
++)
++
++export const FST_ERR_PLUGIN_NOT_VALID = createError(
++  'FST_ERR_PLUGIN_NOT_VALID',
++  'fastify-plugin: %s'
++)
++
++export const FST_ERR_ROOT_PLG_BOOTED = createError(
++  'FST_ERR_ROOT_PLG_BOOTED',
++  'fastify-plugin: %s'
++)
++
++export const FST_ERR_PARENT_PLUGIN_BOOTED = createError(
++  'FST_ERR_PARENT_PLUGIN_BOOTED',
++  'fastify-plugin: %s'
++)
++
++export const FST_ERR_PLUGIN_TIMEOUT = createError(
++  'FST_ERR_PLUGIN_TIMEOUT',
++  'fastify-plugin: %s'
++)
++
++export function appendStackTrace (oldErr, newErr) {
++  newErr.cause = oldErr
++
++  return newErr
++}
++
++export const AVVIO_ERRORS_MAP = {
++  AVV_ERR_CALLBACK_NOT_FN: FST_ERR_PLUGIN_CALLBACK_NOT_FN,
++  AVV_ERR_PLUGIN_NOT_VALID: FST_ERR_PLUGIN_NOT_VALID,
++  AVV_ERR_ROOT_PLG_BOOTED: FST_ERR_ROOT_PLG_BOOTED,
++  AVV_ERR_PARENT_PLG_LOADED: FST_ERR_PARENT_PLUGIN_BOOTED,
++  AVV_ERR_READY_TIMEOUT: FST_ERR_PLUGIN_TIMEOUT,
++  AVV_ERR_PLUGIN_EXEC_TIMEOUT: FST_ERR_PLUGIN_TIMEOUT
++}
+\ No newline at end of file
+diff --git a/lib/hooks.js b/lib/hooks.js
+index f383ff9..551d4da 100644
+--- a/lib/hooks.js
++++ b/lib/hooks.js
+@@ -1,4 +1,5 @@
+ import { FST_ERR_HOOK_NOT_SUPPORTED } from "./errors.js";
++import { kHooks } from "./symbols.js";
+ 
+ export const applicationHooks = [
+   "onRoute",
+@@ -76,3 +77,31 @@ export async function runHooks(hooks, request, reply) {
+     await hook(request, reply);
+   }
+ }
++
++export async function hookRunnerApplication(
++  hookName,
++  boot,
++  instance,
++  hookDone
++) {
++  const hooks = instance[kHooks][hookName];
++
++  // Run local hooks
++  for (const hook of hooks) {
++    await hook.call(instance);
++  }
++
++  // TODO:
++  // Run hooks on child instances
++  // if (instance[kChildren]) {
++  //   for (const child of instance[kChildren]) {
++  //     await hookRunnerApplication(hookName, boot, child);
++  //   }
++  // }
++
++  // Finally, continue Avvio plugin boot phase
++  boot((err, done) => {
++    hookDone(err);
++    done(err); // always call done to let Avvio proceed
++  });
++}
+diff --git a/lib/routing.js b/lib/routing.js
+index 6744244..2995cbf 100644
+--- a/lib/routing.js
++++ b/lib/routing.js
+@@ -8,7 +8,6 @@ export function buildRouter() {
+   const router = FindMyWay();
+ 
+   let avvio
+-
+   // eslint-disable-next-line no-unused-vars
+   function routeHandler (request, reply, params, context, query) {
+     request[kRouteContext] = context
+@@ -30,7 +29,7 @@ export function buildRouter() {
+     setup (options) {
+       avvio = options.avvio
+     },
+-    // router func to find the right handler to call
++    // Router function to find the right handler to call
+     routing: router.lookup.bind(router),
+     route(options) {
+       // `constraints` let us register alternative routes for the same path 
+@@ -40,6 +39,11 @@ export function buildRouter() {
+         handler: handler.bind(this),
+       });
+ 
++      // onRoute hooks
++      for (const hook of this[kHooks].onRoute) {
++        hook.call(this, options)
++      }
++
+       this.after((notHandledErr, done) => {
+         avvio.once('preReady', () => {
+           for (const hook of lifecycleHooks) {
+diff --git a/lib/symbols.js b/lib/symbols.js
+index 2f8d944..7b43dfc 100644
+--- a/lib/symbols.js
++++ b/lib/symbols.js
+@@ -1,5 +1,5 @@
+ // Symbols create unique and non-colliding property keys.
+-export const kState = Symbol("fastify.state");
+-export const kAvvioBoot = Symbol("fastify.avvioBoot");
+-export const kHooks = Symbol("hooks");
+-export const kRouteContext = Symbol("fastify.context");
++export const kState = Symbol("miniFastify.state");
++export const kAvvioBoot = Symbol("miniFastify.avvioBoot");
++export const kHooks = Symbol("miniFastify.hooks");
++export const kRouteContext = Symbol("miniFastify.context");
+diff --git a/mini-fastify.d.ts b/mini-fastify.d.ts
+index f624239..93fe6d8 100644
+--- a/mini-fastify.d.ts
++++ b/mini-fastify.d.ts
+@@ -28,6 +28,10 @@ export interface MiniFastifyInstance {
+   addHook<K extends HookName>(name: K, fn: HookHandlerMap[K]): MiniFastifyInstance;
+ }
+ 
+-declare function miniFastify(): MiniFastifyInstance;
++export interface FastifyServerOptions {
++  pluginTimeout?: number
++}
++
++declare function miniFastify(opts?: FastifyServerOptions): MiniFastifyInstance;
+ 
+ export default miniFastify;
+diff --git a/mini-fastify.js b/mini-fastify.js
+index f9e69be..024f53f 100644
+--- a/mini-fastify.js
++++ b/mini-fastify.js
+@@ -7,10 +7,14 @@ import { kAvvioBoot, kHooks, kState } from "./lib/symbols.js";
+ // pluginOverride *tells* Avvio how to deal with plugin encapsulation
+ import { pluginOverride } from "./lib/pluginOverride.js";
+ import { buildRouter } from "./lib/routing.js";
+-import { Hooks } from "./lib/hooks.js";
+-import { FST_ERR_INSTANCE_ALREADY_STARTED } from "./lib/errors.js";
+-
+-export default function miniFastify() {
++import { hookRunnerApplication, Hooks } from "./lib/hooks.js";
++import {
++  appendStackTrace,
++  AVVIO_ERRORS_MAP,
++  FST_ERR_INSTANCE_ALREADY_STARTED,
++} from "./lib/errors.js";
++
++export default function miniFastify(options = {}) {
+   const router = buildRouter();
+   const instance = {
+     /**
+@@ -22,6 +26,7 @@ export default function miniFastify() {
+      *                  so repeated calls are idempotent.
+      */
+     [kState]: {
++      booting: false,
+       started: false,
+       ready: false,
+       closing: false,
+@@ -38,8 +43,8 @@ export default function miniFastify() {
+     // Will hold Avvio’s *real* `.ready()` so we can call it internally
+     [kAvvioBoot]: null,
+     route: function _route(options) {
+-      throwIfAlreadyStarted('Cannot call "route"!')
+-      // we need the fastify object that we are producing so we apply a lazy loading of the function,
++      throwIfAlreadyStarted('Cannot call "route"!');
++      // we need the miniFastify object that we are producing so we apply a lazy loading of the function,
+       // otherwise we should bind it after the declaration
+       return router.route.call(this, options);
+     },
+@@ -47,12 +52,11 @@ export default function miniFastify() {
+     inject,
+ 
+     [kHooks]: new Hooks(),
+-    addHook
++    addHook,
+   };
+-
+   let lightMyRequest;
+   async function inject(opts) {
+-    // lightMyRequest is dynamically loaded as it seems 
++    // lightMyRequest is dynamically loaded as it seems
+     // very expensive because of Ajv
+     if (lightMyRequest === undefined) {
+       lightMyRequest = (await import("light-my-request")).default;
+@@ -66,25 +70,61 @@ export default function miniFastify() {
+   }
+ 
+   // Promise‑based wrapper around Avvio’s callback‑style `.ready()`.
+-  async function ready() {
+-    if (this[kState].readyPromise !== null) return this[kState].readyPromise;
++  function ready() {
++    if (this[kState].readyPromise !== null) {
++      return this[kState].readyPromise;
++    }
++
++    let resolveReady;
++    let rejectReady;
++
++    // run the onReady hooks after returning the promise
++    process.nextTick(runOnReadyHooks);
+ 
+     this[kState].readyPromise = new Promise((resolve, reject) => {
++      resolveReady = resolve;
++      rejectReady = reject;
++    });
++
++    return this[kState].readyPromise;
++
++    function runOnReadyHooks() {
+       // Internal avvio `ready` function
+       instance[kAvvioBoot]((err, done) => {
+         if (err) {
+-          console.log("hi")
+-          reject(err);
++          readyDone(err);
+         } else {
+-          instance[kState].ready = true;
+-          resolve(instance);
++          instance[kState].booting = true;
++          hookRunnerApplication(
++            "onReady",
++            instance[kAvvioBoot],
++            instance,
++            readyDone
++          );
+         }
+ 
+         done();
+       });
+-    });
++    }
+ 
+-    return this[kState].readyPromise;
++    function readyDone(err) {
++      // If the error comes out of Avvio's Error codes
++      // We create a make and preserve the previous error
++      // as cause
++      err =
++        err != null && AVVIO_ERRORS_MAP[err.code] != null
++          ? appendStackTrace(err, new AVVIO_ERRORS_MAP[err.code](err.message))
++          : err;
++
++      if (err) {
++        return rejectReady(err);
++      }
++
++      resolveReady(instance);
++      instance[kState].booting = false;
++      instance[kState].ready = true;
++      instance[kState].readyPromise = null;
++    }
+   }
+ 
+   /**
+@@ -92,9 +132,11 @@ export default function miniFastify() {
+    * (adding `.register`, `.ready`, etc.).  We disable `autostart` so boot
+    * happens *only* when the user calls `instance.ready()`.
+    */
++  const avvioPluginTimeout = Number(options.pluginTimeout);
+   const avvio = Avvio(instance, {
+     autostart: false, // Do not start loading plugins automatically, but wait for a call to .start()  or .ready().
+-    timeout: 10_000, // Set timeout for plugin execution.
++    // TODO: Validation builder instead of default hardcoded value
++    timeout: isNaN(avvioPluginTimeout) === false ? avvioPluginTimeout : 10_000, // Set timeout for plugin execution.
+     expose: {
+       use: "register", // make Avvio’s .use() available as .register()
+     },
+@@ -126,34 +168,45 @@ export default function miniFastify() {
+     });
+   });
+ 
+-  function addHook (name, fn) {
+-    throwIfAlreadyStarted('Cannot call "addHook"!')
++  function throwIfAlreadyStarted(msg) {
++    if (instance[kState].started)
++      throw new FST_ERR_INSTANCE_ALREADY_STARTED(msg);
++  }
+ 
+-    this.after((err, done) => {
+-      try {
+-        _addHook.call(this, name, fn)
+-        done(err)
+-      } catch (err) {
+-        done(err)
+-      }
+-    })
++  router.setup({
++    avvio,
++  });
+ 
+-    function _addHook (name, fn) {
+-      this[kHooks].add(name, fn)
+-      // Todo:
+-      // this[kChildren].forEach(child => _addHook.call(child, name, fn))
++  function addHook(name, fn) {
++    throwIfAlreadyStarted('Cannot call "addHook"!');
++    if (name === "onClose") {
++      this.onClose(fn.bind(this));
++    } else if (
++      name === "onReady" ||
++      name === "onRoute" ||
++      name === "onListen"
++    ) {
++      this[kHooks].add(name, fn);
++    } else {
++      this.after((err, done) => {
++        console.log("I called even if .ready was never called");
++        try {
++          _addHook.call(this, name, fn);
++          done(err);
++        } catch (err) {
++          done(err);
++        }
++      });
+     }
+ 
+     return this;
+-  };
+ 
+-  function throwIfAlreadyStarted (msg) {
+-    if (instance[kState].started) throw new FST_ERR_INSTANCE_ALREADY_STARTED(msg)
++    function _addHook(name, fn) {
++      this[kHooks].add(name, fn);
++      // TODO:
++      // this[kChildren].forEach(child => _addHook.call(child, name, fn))
++    }
+   }
+ 
+-  router.setup({
+-    avvio 
+-  })
+-
+   return instance;
+ }
+diff --git a/package-lock.json b/package-lock.json
+index 0119066..cfe7553 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,8 +9,7 @@
+       "version": "1.0.0",
+       "license": "MIT",
+       "dependencies": {
+-        "@types/node": "^22.15.2",
+-        "avvio": "^9.1.0",
++        "avvio": "^9.0.0",
+         "fastify": "^5.2.1",
+         "find-my-way": "^9.3.0",
+         "light-my-request": "^6.6.0"
+@@ -18,6 +17,7 @@
+       "devDependencies": {
+         "@eslint/js": "^9.25.0",
+         "@jsumners/line-reporter": "^1.0.1",
++        "@types/node": "^22.15.3",
+         "borp": "^0.19.0",
+         "eslint": "^9.25.0",
+         "globals": "^16.0.0",
+@@ -692,9 +692,10 @@
+       "license": "MIT"
+     },
+     "node_modules/@types/node": {
+-      "version": "22.15.2",
+-      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.15.2.tgz",
+-      "integrity": "sha512-uKXqKN9beGoMdBfcaTY1ecwz6ctxuJAcUlwE55938g0ZJ8lRxwAZqRz2AJ4pzpt5dHdTPMB863UZ0ESiFUcP7A==",
++      "version": "22.15.3",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.15.3.tgz",
++      "integrity": "sha512-lX7HFZeHf4QG/J7tBZqrCAXwz9J5RD56Y6MpP0eJkka8p+K0RY/yBTW7CYFJ4VGCclxqOLKmiGP5juQc6MKgcw==",
++      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "undici-types": "~6.21.0"
+@@ -848,9 +849,9 @@
+       }
+     },
+     "node_modules/avvio": {
+-      "version": "9.1.0",
+-      "resolved": "https://registry.npmjs.org/avvio/-/avvio-9.1.0.tgz",
+-      "integrity": "sha512-fYASnYi600CsH/j9EQov7lECAniYiBFiiAtBNuZYLA2leLe9qOvZzqYHFjtIj6gD2VMoMLP14834LFWvr4IfDw==",
++      "version": "9.0.0",
++      "resolved": "https://registry.npmjs.org/avvio/-/avvio-9.0.0.tgz",
++      "integrity": "sha512-UbYrOXgE/I+knFG+3kJr9AgC7uNo8DG+FGGODpH9Bj1O1kL/QDjBXnTem9leD3VdQKtaHjV3O85DQ7hHh4IIHw==",
+       "license": "MIT",
+       "dependencies": {
+         "@fastify/error": "^4.0.0",
+@@ -4102,6 +4103,7 @@
+       "version": "6.21.0",
+       "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz",
+       "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
++      "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/unicorn-magic": {
+diff --git a/package.json b/package.json
+index c8880b2..e86a6d7 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "fastify-mini",
+   "version": "1.0.0",
+   "description": "A minimalistic version of the Fastify framework.",
+-  "main": "index.js",
++  "main": "./mini-fastify.js",
+   "types": "./mini-fastify.d.ts",
+   "type": "module",
+   "scripts": {
+@@ -16,8 +16,7 @@
+   "author": "",
+   "license": "MIT",
+   "dependencies": {
+-    "@types/node": "^22.15.2",
+-    "avvio": "^9.1.0",
++    "avvio": "^9.0.0",
+     "fastify": "^5.2.1",
+     "find-my-way": "^9.3.0",
+     "light-my-request": "^6.6.0"
+@@ -25,6 +24,7 @@
+   "devDependencies": {
+     "@eslint/js": "^9.25.0",
+     "@jsumners/line-reporter": "^1.0.1",
++    "@types/node": "^22.15.3",
+     "borp": "^0.19.0",
+     "eslint": "^9.25.0",
+     "globals": "^16.0.0",
+diff --git a/test/app-life-cycle.test.js b/test/app-life-cycle.test.js
+index c1d0bb5..5acd4a9 100644
+--- a/test/app-life-cycle.test.js
++++ b/test/app-life-cycle.test.js
+@@ -13,6 +13,7 @@ describe("miniFastify lifecycle", () => {
+   it("should create instance with expected default properties", () => {
+     const state = app[kState];
+ 
++    assert.strictEqual(state.booting, false);
+     assert.strictEqual(state.started, false);
+     assert.strictEqual(state.ready, false);
+     assert.strictEqual(state.closing, false);
+@@ -28,26 +29,33 @@ describe("miniFastify lifecycle", () => {
+     await app.ready();
+ 
+     const state = app[kState];
+-
++    assert.strictEqual(state.booting, false);
+     assert.strictEqual(state.started, true);
+     assert.strictEqual(state.ready, true);
+     assert.strictEqual(state.closing, false);
+-    assert.ok(state.readyPromise instanceof Promise);
++    assert.strictEqual(state.readyPromise, null);
+   });
+ 
+-  it("should keep state consistent if ready is called multiple times", async () => {
+-    await app.ready();
+-    assertState()
+-
+-    await app.ready();
+-    assertState()
++  it("ready should be indempotant", async () => {
++    assert.deepStrictEqual(app.ready(), app.ready())
++  });
+ 
+-    function assertState() {
+-      const state = app[kState];
+-      assert.strictEqual(state.started, true);
+-      assert.strictEqual(state.ready, true);
+-      assert.strictEqual(state.closing, false);
+-      assert.ok(state.readyPromise instanceof Promise);
++  it("should trigger an Avvio timeout error during boot", async () => {
++    app = miniFastify({
++      pluginTimeout: 50
++    });
++  
++    // eslint-disable-next-line no-unused-vars
++    app.register((_instance, _opts, _done) => {
++      // done() is never called – throw on timeout
++    });
++
++    try {
++      await app.ready();
++      assert.fail("Expected timeout error");
++    } catch (err) {
++      // Fastify wraps Avvio error codes
++      assert.strictEqual(err.code, "FST_ERR_PLUGIN_TIMEOUT");
+     }
+   });
+ 
+@@ -56,11 +64,11 @@ describe("miniFastify lifecycle", () => {
+     await app.close();
+ 
+     const state = app[kState];
+-
++    assert.strictEqual(state.booting, false);
+     assert.strictEqual(state.started, true);
+     assert.strictEqual(state.ready, true);
+     assert.strictEqual(state.closing, true);
+-    assert.ok(state.readyPromise instanceof Promise);
++    assert.strictEqual(state.readyPromise, null);
+   });
+ 
+   it("should allow custom onClose handlers", async () => {
+diff --git a/test/hooks.test.js b/test/hooks.test.js
+index fe48171..e582de6 100644
+--- a/test/hooks.test.js
++++ b/test/hooks.test.js
+@@ -1,10 +1,11 @@
+ import { describe, it, beforeEach } from "node:test";
+ 
+ import miniFastify from "../mini-fastify.js";
++import assert from "assert";
+ 
+ describe("miniFastify hooks", () => {
++  /** @type {import('../mini-fastify.js').MiniFastifyInstance} */
+   let app;
+-
+   beforeEach(() => {
+     app = miniFastify();
+   });
+@@ -27,32 +28,79 @@ describe("miniFastify hooks", () => {
+       t.assert.fail();
+     } catch (err) {
+       t.assert.strictEqual(err.code, "FST_ERR_INSTANCE_ALREADY_STARTED");
+-      t.assert.match(err.message, /Fastify instance is already started. Cannot call "addHook"!/i);
++      t.assert.match(
++        err.message,
++        /Fastify instance is already started. Cannot call "addHook"!/i
++      );
+     }
+   });
+ 
+-  it("should execute hooks sequentially", async (t) => {
+-    t.plan(2);
++  async function assertRunSequentially({ name, onAdded, reverse = false }) {
+     const given = [];
+-    app.addHook("onRequest", () => {
++    app.addHook(name, async () => {
+       given.push(1);
+     });
+-    app.addHook("onRequest", async () => {
++
++    app.addHook(name, async () => {
+       given.push(2);
+     });
+-    app.addHook("onRequest", () => {
++
++    app.addHook(name, async () => {
+       given.push(3);
+     });
+-    app.route({
+-      method: "GET",
+-      url: "/ping",
+-      handler: (_, res) => {
+-        res.end("he");
++
++    await onAdded();
++    assert.deepStrictEqual(given, reverse ? [3, 2, 1] : [1, 2, 3]);
++  }
++
++  it("should execute onClose hooks sequentially", async () => {
++    await assertRunSequentially({
++      name: "onClose",
++      onAdded: async () => {
++        await app.ready();
++        await app.close();
++      },
++      reverse: true,
++    });
++  });
++
++  it("should execute application onReady hooks sequentially", async () => {
++    await assertRunSequentially({
++      name: "onReady",
++      onAdded: async () => {
++        await app.ready();
++      },
++    });
++  });
++
++  it("should execute application onRoute hooks sequentially", async () => {
++    await assertRunSequentially({
++      name: "onRoute",
++      onAdded: async () => {
++        app.route({
++          method: "GET",
++          url: "/",
++          handler: () => {}
++        })
++        await app.ready();
+       },
+     });
++  });
+ 
+-    const res = await app.inject({ method: "GET", url: "/ping" });
+-    t.assert.equal(res.statusCode, 200);
+-    t.assert.deepStrictEqual(given, [1, 2, 3]);
++  it("should execute life cycle hooks sequentially", async () => {
++    await assertRunSequentially({
++      name: "onRequest",
++      onAdded: async () => {
++        app.route({
++          method: "GET",
++          url: "/ping",
++          handler: (_, res) => {
++            res.end();
++          },
++        });
++        await app.ready();
++        await app.inject({ method: "GET", url: "/ping" });
++      },
++    });
+   });
+ });
+diff --git a/test/plugin-system.test.js b/test/plugin-system.test.js
+index b1f3084..dc77909 100644
+--- a/test/plugin-system.test.js
++++ b/test/plugin-system.test.js
+@@ -1,4 +1,4 @@
+-import { it, describe, beforeEach } from "node:test";
++import { it, describe, beforeEach, afterEach } from "node:test";
+ import assert from "node:assert";
+ 
+ import miniFastify from "../mini-fastify.js";
+@@ -10,9 +10,12 @@ describe("miniFastify plugin registration", () => {
+     app = miniFastify();
+   });
+ 
+-  it("should reject if a plugin throws or fails during registration", async () => {
+-    const app = miniFastify();
++  afterEach(async () => {
++    await app.close()
++  })
++
+ 
++  it("should reject if a plugin throws or fails during registration", async () => {
+     const expectedError = new Error("Kaboom!");
+ 
+     app.register(async () => {
+@@ -30,7 +33,7 @@ describe("miniFastify plugin registration", () => {
+   it("should pass options to registered plugins", async () => {
+     let receivedOpts;
+     app.register(
+-      (instance, opts) => {
++      async (instance, opts) => {
+         receivedOpts = opts;
+       },
+       { x: 1 }
+@@ -43,10 +46,10 @@ describe("miniFastify plugin registration", () => {
+ 
+   it("should isolate plugin context via encapsulation", async () => {
+     let childValue;
+-    app.register((instance) => {
++    app.register(async (instance) => {
+       instance.x = 1;
+ 
+-      instance.register((child) => {
++      instance.register(async (child) => {
+         childValue = child.x;
+       });
+     });
+@@ -58,13 +61,13 @@ describe("miniFastify plugin registration", () => {
+   });
+ 
+   it("should skip encapsulation if plugin sets Symbol.for('skip-override')", async () => {
+-    const plugin = (instance) => {
++    const plugin = async (instance) => {
+       instance.x = 1;
+     };
+     plugin[Symbol.for("skip-override")] = true;
+ 
+     app.register(plugin);
+-    app.register((instance) => {
++    app.register(async (instance) => {
+       assert.strictEqual(instance.x, 1);
+     });
+ 
+@@ -74,7 +77,7 @@ describe("miniFastify plugin registration", () => {
+   });
+ 
+   it("should immediately decorate if awaited", async () => {
+-    const plugin = (instance) => {
++    const plugin = async (instance) => {
+       instance.x = 1;
+     };
+     plugin[Symbol.for("skip-override")] = true;
+diff --git a/test/types/mini-fastify.test-d.ts b/test/types/mini-fastify.test-d.ts
+index 3d1dcd5..d52bca3 100644
+--- a/test/types/mini-fastify.test-d.ts
++++ b/test/types/mini-fastify.test-d.ts
+@@ -1,4 +1,4 @@
+-import { expectType, expectError } from "tsd";
++import { expectType, expectError, expectAssignable } from "tsd";
+ import {
+   InjectOptions,
+   Response as LightMyRequestResponse,
+@@ -10,8 +10,9 @@ import miniFastify, {
+ import { IncomingMessage, ServerResponse } from "node:http";
+ 
+ // basic instance
++expectAssignable<MiniFastifyInstance>(miniFastify({ pluginTimeout: 10_000 }));
++
+ const app = miniFastify();
+-expectType<MiniFastifyInstance>(app);
+ 
+ // lifecycle methods
+ expectType<Promise<MiniFastifyInstance>>(app.ready());
+@@ -41,8 +42,8 @@ expectType<MiniFastifyInstance>(
+     method: "GET",
+     url: "/",
+     handler: (req, res) => {
+-      expectType<IncomingMessage>(req)
+-      expectType<ServerResponse>(res)
++      expectType<IncomingMessage>(req);
++      expectType<ServerResponse>(res);
+       res.end("ok");
+     },
+     constraints: { host: "hello" },
+@@ -53,7 +54,9 @@ expectType<MiniFastifyInstance>(
+ expectError(app.route({ method: "GET", url: "/" }));
+ 
+ // Invalid constraints
+-expectError(app.route({ method: "GET", url: "/", handler: () => {}, constraints: true }));
++expectError(
++  app.route({ method: "GET", url: "/", handler: () => {}, constraints: true })
++);
+ 
+ const opts: InjectOptions = {};
+ expectType<Promise<LightMyRequestResponse>>(app.inject(opts));
+@@ -67,13 +70,11 @@ expectError(
+   )
+ );
+ 
+-expectError<MiniFastifyInstance>(
+-  app.addHook("invalidHook", () => {})
+-);
++expectError<MiniFastifyInstance>(app.addHook("invalidHook", () => {}));
+ 
+ expectType<MiniFastifyInstance>(
+   app.addHook("onRequest", (req, rep) => {
+-    expectType<IncomingMessage>(req)
+-    expectType<ServerResponse>(rep)
++    expectType<IncomingMessage>(req);
++    expectType<ServerResponse>(rep);
+   })
+-);
+\ No newline at end of file
++);

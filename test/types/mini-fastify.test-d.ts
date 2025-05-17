@@ -1,4 +1,4 @@
-import { expectType, expectError } from "tsd";
+import { expectType, expectError, expectAssignable } from "tsd";
 import {
   InjectOptions,
   Response as LightMyRequestResponse,
@@ -10,8 +10,9 @@ import miniFastify, {
 import { IncomingMessage, ServerResponse } from "node:http";
 
 // basic instance
+expectAssignable<MiniFastifyInstance>(miniFastify({ pluginTimeout: 10_000 }));
+
 const app = miniFastify();
-expectType<MiniFastifyInstance>(app);
 
 // lifecycle methods
 expectType<Promise<MiniFastifyInstance>>(app.ready());
@@ -41,8 +42,8 @@ expectType<MiniFastifyInstance>(
     method: "GET",
     url: "/",
     handler: (req, res) => {
-      expectType<IncomingMessage>(req)
-      expectType<ServerResponse>(res)
+      expectType<IncomingMessage>(req);
+      expectType<ServerResponse>(res);
       res.end("ok");
     },
     constraints: { host: "hello" },
@@ -53,7 +54,9 @@ expectType<MiniFastifyInstance>(
 expectError(app.route({ method: "GET", url: "/" }));
 
 // Invalid constraints
-expectError(app.route({ method: "GET", url: "/", handler: () => {}, constraints: true }));
+expectError(
+  app.route({ method: "GET", url: "/", handler: () => {}, constraints: true })
+);
 
 const opts: InjectOptions = {};
 expectType<Promise<LightMyRequestResponse>>(app.inject(opts));
@@ -67,13 +70,11 @@ expectError(
   )
 );
 
-expectError<MiniFastifyInstance>(
-  app.addHook("invalidHook", () => {})
-);
+expectError<MiniFastifyInstance>(app.addHook("invalidHook", () => {}));
 
 expectType<MiniFastifyInstance>(
   app.addHook("onRequest", (req, rep) => {
-    expectType<IncomingMessage>(req)
-    expectType<ServerResponse>(rep)
+    expectType<IncomingMessage>(req);
+    expectType<ServerResponse>(rep);
   })
 );

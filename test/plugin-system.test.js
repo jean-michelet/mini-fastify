@@ -1,4 +1,4 @@
-import { it, describe, beforeEach } from "node:test";
+import { it, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 
 import miniFastify from "../mini-fastify.js";
@@ -10,9 +10,12 @@ describe("miniFastify plugin registration", () => {
     app = miniFastify();
   });
 
-  it("should reject if a plugin throws or fails during registration", async () => {
-    const app = miniFastify();
+  afterEach(async () => {
+    await app.close()
+  })
 
+
+  it("should reject if a plugin throws or fails during registration", async () => {
     const expectedError = new Error("Kaboom!");
 
     app.register(async () => {
@@ -30,7 +33,7 @@ describe("miniFastify plugin registration", () => {
   it("should pass options to registered plugins", async () => {
     let receivedOpts;
     app.register(
-      (instance, opts) => {
+      async (instance, opts) => {
         receivedOpts = opts;
       },
       { x: 1 }
@@ -43,10 +46,10 @@ describe("miniFastify plugin registration", () => {
 
   it("should isolate plugin context via encapsulation", async () => {
     let childValue;
-    app.register((instance) => {
+    app.register(async (instance) => {
       instance.x = 1;
 
-      instance.register((child) => {
+      instance.register(async (child) => {
         childValue = child.x;
       });
     });
@@ -58,13 +61,13 @@ describe("miniFastify plugin registration", () => {
   });
 
   it("should skip encapsulation if plugin sets Symbol.for('skip-override')", async () => {
-    const plugin = (instance) => {
+    const plugin = async (instance) => {
       instance.x = 1;
     };
     plugin[Symbol.for("skip-override")] = true;
 
     app.register(plugin);
-    app.register((instance) => {
+    app.register(async (instance) => {
       assert.strictEqual(instance.x, 1);
     });
 
@@ -74,7 +77,7 @@ describe("miniFastify plugin registration", () => {
   });
 
   it("should immediately decorate if awaited", async () => {
-    const plugin = (instance) => {
+    const plugin = async (instance) => {
       instance.x = 1;
     };
     plugin[Symbol.for("skip-override")] = true;
